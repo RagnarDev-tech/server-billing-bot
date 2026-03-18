@@ -1,0 +1,79 @@
+@import "tailwindcss";
+
+@theme {
+  /* База: Глибокий технічний чорний */
+  --color-cyber-bg: #050507;
+  --color-cyber-panel: #0D0D12;
+  --color-cyber-border: rgba(255, 255, 255, 0.03);
+  
+  /* Пріоритетний Зелений Неон */
+  --color-neon-green: #39FF14;
+  --color-neon-green-dark: #004d00;
+  
+  /* Акцентні кольори для карток */
+  --color-neon-blue: #00b0ff;
+  --color-neon-red: #ff3131;
+  --color-neon-orange: #ff9800;
+  --color-neon-gold: #ffd700;
+
+  /* Твої палітри градієнтів (З ЯСКРАВІШИМ ЧЕРВОНИМ) */
+  --grad-blue: linear-gradient(135deg, #0277bd 0%, #00b0ff 100%);
+  --grad-red: linear-gradient(135deg, #ff1a1a 0%, #ff3131 100%); /* Набагато яскравіше */
+  --grad-orange: linear-gradient(135deg, #e65100 0%, #ff9800 100%);
+  --grad-green: linear-gradient(135deg, #2e7d32 0%, #4caf50 100%);
+  --grad-gold: linear-gradient(135deg, #b8860b 0%, #ffd700 100%);
+
+  /* Тіні світіння (Mild/Moderate) */
+  --shadow-neon-base: 0 4px 15px -5px rgba(57, 255, 20, 0.2);
+  --shadow-neon-hover: 0 10px 30px -10px rgba(57, 255, 20, 0.5), 0 0 15px rgba(57, 255, 20, 0.1);
+}
+
+@layer base {
+  body {
+    background: radial-gradient(circle at 50% 30%, #0e1a12 0%, #050507 100%);
+    @apply text-slate-400 antialiased min-h-screen selection:bg-neon-green selection:text-black;
+  }
+}
+
+@layer components {
+  /* Преміальна карта з постійним легким світінням та посиленим при наведенні */
+  .premium-card {
+    @apply relative bg-cyber-panel border border-white/5 rounded-2xl transition-all duration-300 z-10;
+    box-shadow: var(--shadow-neon-base);
+  }
+
+  .premium-card:hover {
+    /* @apply scale-[1.03] z-20 border-white/10;*/
+    box-shadow: var(--shadow-neon-hover); 
+  }
+
+  /* Окремий контейнер для сканування (всередині карти) */
+  .scan-container {
+    @apply absolute inset-0 rounded-2xl overflow-hidden pointer-events-none z-0;
+  }
+
+  .scanline {
+    @apply absolute w-full h-[1px] opacity-0 transition-opacity duration-500;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    top: -10%;
+  }
+
+  .premium-card:hover .scanline {
+    @apply opacity-100;
+    animation: scan 2s linear infinite;
+  }
+
+  @keyframes scan {
+    from { top: -10%; }
+    to { top: 110%; }
+  }
+
+  /* Ефект підсвітки іконок */
+  .icon-box {
+    @apply p-3 rounded-xl bg-white/[0.03] border border-white/5 transition-all duration-300;
+  }
+
+  .premium-card:hover .icon-box {
+    @apply border-white/20 shadow-[0_0_20px_rgba(255,255,255,0.1)];
+  }
+}
