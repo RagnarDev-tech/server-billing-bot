@@ -34,3 +34,32 @@ exports.login = async (req, res) => {
         res.status(500).json({ error: 'Помилка сервера' });
     }
 };
+
+exports.refreshToken = async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'Немає токена' });
+
+    const token = authHeader.split(' ')[1];
+    
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: true });
+        
+        const result = await pool.query('SELECT * FROM users WHERE id = $1', [decoded.id]);
+        const user = result.rows[0];
+        
+        if (!user) {
+            return res.status(401).json({ error: 'Користувача не знайдено' });
+        }
+
+        const newToken = jwt.sign(
+            { id: user.id, username: user.username, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: '360d' }
+        );
+
+        res.json({ token: newToken, role: user.role });
+    } catch (err) {
+        console.error(err);
+        res.status(401).json({ error: 'Токен мертвий, авторизуйся заново' });
+    }
+};

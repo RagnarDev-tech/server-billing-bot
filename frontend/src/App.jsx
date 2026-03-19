@@ -17,8 +17,7 @@ function App() {
     <div className="min-h-screen bg-[#050507] overflow-x-hidden">
       <Routes>
         <Route path="/login" element={<Login />} />
-        
-        {/* Всі захищені сторінки рендеряться всередині Layout */}
+
         <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard />} />

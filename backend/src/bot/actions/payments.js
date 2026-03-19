@@ -1,5 +1,5 @@
-const pool = require('../db/pool');
-const keyboards = require('./keyboards');
+const pool = require('../../db/pool');
+const keyboards = require('../keyboards/inline');
 
 module.exports = (bot) => {
     bot.action(/^pay_(\d+)$/, async (ctx) => {

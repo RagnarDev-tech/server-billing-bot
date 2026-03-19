@@ -1,18 +1,24 @@
 const cron = require('node-cron');
 const pool = require('../db/pool');
 const bot = require('../bot/setup');
-const keyboards = require('../bot/keyboards');
+const keyboards = require('../bot/keyboards/inline');
 const { syncBalances } = require('../services/bitlaunch');
 
-async function notify() {
+function getLastWorkingDayOfMonth(date) {
+    const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+    const dayOfWeek = lastDay.getDay(); 
+    if (dayOfWeek === 6) lastDay.setDate(lastDay.getDate() - 1);
+    else if (dayOfWeek === 0) lastDay.setDate(lastDay.getDate() - 2);
+    return lastDay;
+}
+
+async function notify(force = false) {
     try {
         const kyivTime = new Date().toLocaleString('en-US', { timeZone: 'Europe/Kyiv' });
         const currentHour = new Date(kyivTime).getHours();
 
-        // 1. Оновлюємо баланси BitLaunch перед звітом/алертами
         await syncBalances();
 
-        // 2. Отримуємо дані з БД
         const { rows: servers } = await pool.query(`SELECT * FROM v_servers_dashboard WHERE status != 'archived'`);
         const { rows: accounts } = await pool.query(`
             SELECT ba.*, t.name as team_name 
@@ -20,18 +26,22 @@ async function notify() {
             JOIN teams t ON ba.team_id = t.id
         `);
 
-        // ==========================================
-        // 📊 СТРУКТУРОВАНИЙ РАНКОВИЙ ЗВІТ (09:00)
-        // ==========================================
-        if (currentHour === 9) {
-            let reportMsg = `📊 <b>РАНКОВИЙ ЗВІТ СИСТЕМ</b>\n\n`;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const lwd = getLastWorkingDayOfMonth(new Date(today));
+        lwd.setHours(0, 0, 0, 0);
+        
+        const isLastWorkingDay = today.getTime() === lwd.getTime();
+        const lookAheadDays = isLastWorkingDay ? 15 : 5;
+
+        if (currentHour === 9 || force) {
+            let reportMsg = `📊 <b>ЗВІТ СИСТЕМ</b>\n\n`;
             
             const uniqueTeams = [...new Set(servers.map(s => s.team_name || 'Без команди'))];
 
             for (const team of uniqueTeams) {
                 reportMsg += `👥 <b>Команда: ${team}</b>\n`;
                 
-                // Фільтруємо сервери команди та сортуємо за датою (спадання)
                 const teamServers = servers
                     .filter(s => (s.team_name || 'Без команди') === team)
                     .sort((a, b) => new Date(b.next_payment_date) - new Date(a.next_payment_date));
@@ -41,7 +51,6 @@ async function notify() {
                     reportMsg += `• <code>${date}</code> — ${s.server_name}\n`;
                 });
 
-                // Додаємо баланс BitLaunch, якщо він прив'язаний до команди
                 const teamAcc = accounts.find(a => a.team_name === team);
                 if (teamAcc) {
                     const burnDate = teamAcc.predicted_burn_out_date 
@@ -55,10 +64,7 @@ async function notify() {
             await bot.telegram.sendMessage(process.env.ADMIN_TG_ID, reportMsg, { parse_mode: 'HTML' });
         }
 
-        // ==========================================
-        // ⚠️ АЛЕРТИ ПО БАЛАНСУ (9, 12, 16)
-        // ==========================================
-        if ([9, 12, 16].includes(currentHour)) {
+        if ([9, 12, 16].includes(currentHour) || force) {
             for (const acc of accounts) {
                 const balance = parseFloat(acc.last_balance);
                 
@@ -78,27 +84,26 @@ async function notify() {
             }
         }
 
-        // ==========================================
-        // 💸 НАГАДУВАННЯ ПРО ОПЛАТУ СЕРВЕРІВ (9, 12, 16)
-        // ==========================================
         for (const s of servers) {
-            // Скіпаємо, якщо на паузі
-            if (s.snooze_until && new Date(s.snooze_until) > new Date()) continue;
+            if (!force && s.snooze_until && new Date(s.snooze_until) > new Date()) continue;
 
-            const today = new Date();
             const nextPayment = new Date(s.next_payment_date);
-            const daysLeft = Math.ceil((nextPayment - today) / (1000 * 60 * 60 * 24));
+            nextPayment.setHours(0, 0, 0, 0);
+            
+            const daysLeft = Math.round((nextPayment.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
             const details = [
                 s.provider_name ? `🏢 ${s.provider_name}` : '',
                 s.team_name ? `👥 ${s.team_name}` : ''
             ].filter(Boolean).join(' • ');
 
-            const dateStr = nextPayment.toISOString().split('T')[0];
+            const dateStr = nextPayment.toLocaleDateString('uk-UA');
             const msgBase = `\n\n🖥 <b>${s.server_name}</b>\n🌐 <code>${s.ip_vpn || s.ip_original || 'Сервіс'}</code>\n${details}\n\n📅 Дедлайн: <b>${dateStr}</b>`;
 
-            if ([9, 12, 16].includes(currentHour)) {
-                if (daysLeft <= (s.notify_days_before || 5) && daysLeft >= 0) {
+            if ([9, 12, 16].includes(currentHour) || force) {
+                const maxDays = force ? lookAheadDays : (s.notify_days_before || 5);
+
+                if (daysLeft <= maxDays && daysLeft >= 0) {
                     await bot.telegram.sendMessage(
                         process.env.ADMIN_TG_ID,
                         `💸 <b>ЧАС ПЛАТИТИ!</b>\n⏳ Залишилось: <b>${daysLeft} дн.</b>${msgBase}`,
@@ -115,20 +120,10 @@ async function notify() {
             }
         }
     } catch (err) {
-        console.error("Помилка воркера notify:", err);
+        console.error(err);
     }
 }
 
-// Функція розрахунку останнього робочого дня
-function getLastWorkingDayOfMonth(date) {
-    const lastDay = new Date(date.getFullYear(), date.getMonth() + 1, 0);
-    const dayOfWeek = lastDay.getDay(); 
-    if (dayOfWeek === 6) lastDay.setDate(lastDay.getDate() - 1);
-    else if (dayOfWeek === 0) lastDay.setDate(lastDay.getDate() - 2);
-    return lastDay;
-}
-
-// Зведений звіт на кінець місяця
 async function notifyEndOfMonth() {
     try {
         const today = new Date();
@@ -169,16 +164,10 @@ async function notifyEndOfMonth() {
             msg += `\n<i>Не забудь підготувати кеш!</i> 💸`;
             await bot.telegram.sendMessage(process.env.ADMIN_TG_ID, msg, { parse_mode: 'HTML' });
         }
-    } catch (err) {
-        console.error("Помилка EndOfMonth Notifier:", err);
-    }
+    } catch (err) {}
 }
 
-// Розклад
-cron.schedule('0 9,12,16 * * *', notify, { timezone: 'Europe/Kyiv' });
+cron.schedule('0 9,12,16 * * *', () => notify(false), { timezone: 'Europe/Kyiv' });
 cron.schedule('0 10 * * *', notifyEndOfMonth, { timezone: 'Europe/Kyiv' });
-
-// ТЕСТОВИЙ ЗАПУСК (за потреби розкоментувати для перевірки)
-// setTimeout(() => { notify(); }, 2000);
 
 module.exports = notify;
